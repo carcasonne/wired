@@ -119,13 +119,17 @@ def get_stylesheet() -> str:
             outline: none;
         }}
 
+        QHeaderView {{
+            background-color: {BG_PRIMARY};
+        }}
+
         QHeaderView::section {{
             background-color: {BG_PRIMARY};
             color: {TEXT_MUTED};
             border: none;
-            border-bottom: 1px solid {BORDER};
-            padding: 6px 8px;
+            padding: 8px 8px;
             font-weight: bold;
+            font-size: 11px;
         }}
 
         QHeaderView::section:hover {{

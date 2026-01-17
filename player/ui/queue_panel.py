@@ -164,7 +164,10 @@ class QueuePanel(QWidget):
 
     COLLAPSED_WIDTH = 0
     EXPANDED_WIDTH = 280
-    UPCOMING_COUNT = 10
+    ITEM_HEIGHT = 52  # Height of each track item in pixels
+    DIVIDER_HEIGHT = 24  # Height of divider item
+    HEADER_HEIGHT = 32
+    FOOTER_HEIGHT = 24
 
     def __init__(self, queue: PlaybackQueue):
         super().__init__()
@@ -183,6 +186,30 @@ class QueuePanel(QWidget):
         self._playback_tracks = tracks
         self._playback_index = index
         self._refresh()
+
+    def _get_visible_upcoming_count(self) -> int:
+        """Calculate how many upcoming tracks can fit in available space."""
+        # Available height for list items
+        available_height = self.height() - self.HEADER_HEIGHT - self.FOOTER_HEIGHT
+
+        # Account for queued items and potential divider
+        queue_count = len(self._queue)
+        used_height = queue_count * self.ITEM_HEIGHT
+        if queue_count > 0:
+            used_height += self.DIVIDER_HEIGHT
+
+        remaining_height = available_height - used_height
+
+        # Calculate how many upcoming items fit
+        if remaining_height <= 0:
+            return 0
+        return max(1, remaining_height // self.ITEM_HEIGHT)
+
+    def resizeEvent(self, event):
+        """Handle resize to update visible track count."""
+        super().resizeEvent(event)
+        if self._is_expanded:
+            self._refresh()
 
     def _setup_ui(self):
         self.setFixedWidth(self.COLLAPSED_WIDTH)
@@ -204,7 +231,6 @@ class QueuePanel(QWidget):
             QFrame#queueHeader {{
                 background-color: {BG_PRIMARY};
                 border: none;
-                border-bottom: 1px solid {BORDER};
                 border-left: 1px solid {BORDER};
             }}
             QLabel {{ border: none; }}
@@ -381,11 +407,12 @@ class QueuePanel(QWidget):
             position += 1
 
         # Get upcoming tracks from playback state (not view playlist)
+        # Calculate how many can fit dynamically
         upcoming = []
         if self._playback_tracks and self._playback_index >= 0:
-            # Get tracks after current playback position
+            visible_count = self._get_visible_upcoming_count()
             start_idx = self._playback_index + 1
-            end_idx = min(start_idx + self.UPCOMING_COUNT, len(self._playback_tracks))
+            end_idx = min(start_idx + visible_count, len(self._playback_tracks))
             upcoming = self._playback_tracks[start_idx:end_idx]
 
         # Add divider if we have both queued and upcoming

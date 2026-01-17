@@ -64,9 +64,7 @@ class PlaylistItemDelegate(QStyledItemDelegate):
         text_rect = option.rect.adjusted(12, 0, -12, 0)
         painter.drawText(text_rect, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, elided)
 
-        # Draw bottom border
-        painter.setPen(QColor(BG_PRIMARY))
-        painter.drawLine(option.rect.bottomLeft(), option.rect.bottomRight())
+        # No bottom border - cleaner look
 
         painter.restore()
 
@@ -91,7 +89,12 @@ class Sidebar(QWidget):
 
     def _setup_ui(self):
         self.setFixedWidth(280)
+        self.setObjectName("sidebar")
         self.setStyleSheet(f"""
+            QWidget#sidebar {{
+                background-color: {BG_PRIMARY};
+                border-right: 1px solid {BORDER};
+            }}
             QWidget {{
                 background-color: {BG_PRIMARY};
             }}
@@ -112,14 +115,12 @@ class Sidebar(QWidget):
 
     def _setup_album_section(self, parent_layout: QVBoxLayout):
         """Setup the album art display section."""
-        # Section header
+        # Section header - aligned with main header (32px)
         header = QFrame()
-        header.setFixedHeight(24)
+        header.setFixedHeight(32)
         header.setStyleSheet(f"""
             QFrame {{
                 background-color: {BG_PRIMARY};
-                border-bottom: 1px solid {BORDER};
-                border-right: 1px solid {BORDER};
             }}
         """)
         header_layout = QHBoxLayout(header)
@@ -128,7 +129,7 @@ class Sidebar(QWidget):
         label = QLabel("CURRENT")
         label.setStyleSheet(f"""
             color: {ACCENT};
-            font-size: 10px;
+            font-size: 11px;
             font-weight: bold;
             letter-spacing: 2px;
         """)
@@ -142,7 +143,6 @@ class Sidebar(QWidget):
         art_container.setStyleSheet(f"""
             QFrame {{
                 background-color: {BG_PRIMARY};
-                border-right: 1px solid {BORDER};
             }}
         """)
         art_layout = QVBoxLayout(art_container)
@@ -168,12 +168,10 @@ class Sidebar(QWidget):
         """Setup the metadata display section with explicit labels."""
         # Section header
         header = QFrame()
-        header.setFixedHeight(24)
+        header.setFixedHeight(32)
         header.setStyleSheet(f"""
             QFrame {{
                 background-color: {BG_PRIMARY};
-                border-bottom: 1px solid {BORDER};
-                border-right: 1px solid {BORDER};
             }}
         """)
         header_layout = QHBoxLayout(header)
@@ -182,7 +180,7 @@ class Sidebar(QWidget):
         label = QLabel("MEDIA INFO")
         label.setStyleSheet(f"""
             color: {ACCENT};
-            font-size: 10px;
+            font-size: 11px;
             font-weight: bold;
             letter-spacing: 2px;
         """)
@@ -196,7 +194,6 @@ class Sidebar(QWidget):
         meta_container.setStyleSheet(f"""
             QFrame {{
                 background-color: {BG_PRIMARY};
-                border-right: 1px solid {BORDER};
             }}
         """)
         meta_layout = QVBoxLayout(meta_container)
@@ -265,12 +262,10 @@ class Sidebar(QWidget):
         """Setup the playlist list section."""
         # Section header
         header = QFrame()
-        header.setFixedHeight(24)
+        header.setFixedHeight(32)
         header.setStyleSheet(f"""
             QFrame {{
                 background-color: {BG_PRIMARY};
-                border-bottom: 1px solid {BORDER};
-                border-right: 1px solid {BORDER};
             }}
         """)
         header_layout = QHBoxLayout(header)
@@ -279,7 +274,7 @@ class Sidebar(QWidget):
         label = QLabel("PLAYLISTS")
         label.setStyleSheet(f"""
             color: {ACCENT};
-            font-size: 10px;
+            font-size: 11px;
             font-weight: bold;
             letter-spacing: 2px;
         """)
@@ -303,7 +298,6 @@ class Sidebar(QWidget):
         list_container.setStyleSheet(f"""
             QFrame {{
                 background-color: {BG_SECONDARY};
-                border-right: 1px solid {BORDER};
             }}
         """)
         list_layout = QVBoxLayout(list_container)
@@ -324,7 +318,6 @@ class Sidebar(QWidget):
                 color: {TEXT_MUTED};
                 padding: 6px 12px;
                 border: none;
-                border-bottom: 1px solid {BG_PRIMARY};
             }}
             QListWidget::item:hover {{
                 background-color: {BG_TERTIARY};

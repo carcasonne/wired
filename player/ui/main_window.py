@@ -127,6 +127,12 @@ class MainWindow(QMainWindow):
         header = self._create_header()
         main_layout.addWidget(header)
 
+        # Horizontal separator below header
+        header_separator = QFrame()
+        header_separator.setFixedHeight(1)
+        header_separator.setStyleSheet(f"background-color: {BORDER};")
+        main_layout.addWidget(header_separator)
+
         # Content area (sidebar + playlist)
         content = QWidget()
         content_layout = QHBoxLayout(content)
@@ -179,7 +185,6 @@ class MainWindow(QMainWindow):
         header.setStyleSheet(f"""
             QFrame {{
                 background-color: {BG_PRIMARY};
-                border-bottom: 1px solid {BORDER};
             }}
             QLabel {{
                 background-color: transparent;
@@ -231,6 +236,13 @@ class MainWindow(QMainWindow):
         hours = int(total_duration // 3600)
         minutes = int((total_duration % 3600) // 60)
 
+        # View indicator
+        if self._current_view is None:
+            view_text = "LIBRARY"
+        else:
+            playlist = self._playlist_manager.get(self._current_view)
+            view_text = playlist.name.upper() if playlist else "PLAYLIST"
+
         current_idx = self._playlist.current_index
         if current_idx >= 0:
             pos_text = f"TRACK {current_idx + 1}/{total_tracks}"
@@ -242,7 +254,7 @@ class MainWindow(QMainWindow):
         else:
             duration_text = f"{minutes}m"
 
-        self._stats_label.setText(f"{pos_text}  |  {duration_text}")
+        self._stats_label.setText(f"{view_text}  |  {pos_text}  |  {duration_text}")
 
     def _setup_signals(self):
         # Audio engine signals
