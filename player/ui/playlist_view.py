@@ -15,7 +15,8 @@ from PyQt6.QtWidgets import (
 
 from player.core.metadata import Track
 from player.core.playlist import Playlist
-from player.theme.lainchan import ACCENT, BG_TERTIARY, BG_SECONDARY
+from player.core.playlist_manager import SavedPlaylist
+from player.theme.lainchan import ACCENT, BG_TERTIARY, BG_SECONDARY, BG_PRIMARY, BORDER, TEXT_NORMAL, ACCENT_DIM
 
 
 class PlayingTrackDelegate(QStyledItemDelegate):
@@ -54,8 +55,12 @@ class PlaylistView(QTableWidget):
 
     track_activated = pyqtSignal(int)  # double-click to play
     track_selected = pyqtSignal(int)  # single-click selection
-    play_next_requested = pyqtSignal(int)  # add to front of queue
-    add_to_queue_requested = pyqtSignal(int)  # add to end of queue
+    play_next_requested = pyqtSignal(list)  # add to front of queue (list of indices)
+    add_to_queue_requested = pyqtSignal(list)  # add to end of queue (list of indices)
+    add_to_playlist_requested = pyqtSignal(list, str)  # track_indices, playlist_id
+    create_playlist_with_tracks_requested = pyqtSignal(list)  # track_indices
+    remove_from_playlist_requested = pyqtSignal(list)  # track_indices (only when viewing user playlist)
+    view_artist_requested = pyqtSignal(str)  # artist name
 
     COLUMNS = ["", "Title", "Artist", "Album", "Time", "Codec", "Year"]
 
@@ -66,6 +71,8 @@ class PlaylistView(QTableWidget):
         self._current_playlist_index: int = -1
         self._delegate = PlayingTrackDelegate(self)
         self.setItemDelegate(self._delegate)
+        self._saved_playlists: list[SavedPlaylist] = []
+        self._current_view_playlist_id: str | None = None  # None = library, str = user playlist
         self._setup_ui()
 
     def _setup_ui(self):
@@ -73,7 +80,7 @@ class PlaylistView(QTableWidget):
         self.setHorizontalHeaderLabels(self.COLUMNS)
         self.setAlternatingRowColors(True)
         self.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.setShowGrid(False)
         self.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.verticalHeader().setVisible(False)
@@ -116,13 +123,17 @@ class PlaylistView(QTableWidget):
         if not self._playlist:
             return
 
+        # Suspend updates for performance with large playlists
+        self.setUpdatesEnabled(False)
         self.setSortingEnabled(False)
+
         self.setRowCount(len(self._playlist))
 
         for row, track in enumerate(self._playlist.tracks):
             self._set_row(row, track)
 
         self.setSortingEnabled(True)
+        self.setUpdatesEnabled(True)
 
         # Restore current track highlight
         if self._current_row >= 0:
@@ -219,7 +230,7 @@ class PlaylistView(QTableWidget):
                 self.track_selected.emit(original_index)
 
     def get_selected_index(self) -> int:
-        """Get the currently selected track index."""
+        """Get the currently selected track index (first selected if multiple)."""
         selected = self.selectedItems()
         if selected:
             item = selected[0]
@@ -227,10 +238,34 @@ class PlaylistView(QTableWidget):
             return original_index if original_index is not None else -1
         return -1
 
+    def get_selected_indices(self) -> list[int]:
+        """Get all selected track indices."""
+        indices = set()
+        for item in self.selectedItems():
+            original_index = item.data(Qt.ItemDataRole.UserRole)
+            if original_index is not None:
+                indices.add(original_index)
+        return sorted(indices)
+
     def select_row(self, index: int):
-        """Select a row by playlist index."""
+        """Select a row by visual row index."""
         if 0 <= index < self.rowCount():
             self.selectRow(index)
+
+    def select_by_playlist_index(self, playlist_index: int):
+        """Select a row by playlist index (handles sorting)."""
+        visual_row = self._find_visual_row_for_index(playlist_index)
+        if visual_row >= 0:
+            self.selectRow(visual_row)
+            self.scrollToItem(self.item(visual_row, 0))
+
+    def set_saved_playlists(self, playlists: list[SavedPlaylist]):
+        """Update the list of saved playlists for context menu."""
+        self._saved_playlists = playlists
+
+    def set_current_view(self, playlist_id: str | None):
+        """Set the current view (None for library, playlist_id for user playlist)."""
+        self._current_view_playlist_id = playlist_id
 
     def _show_context_menu(self, position):
         """Show right-click context menu for tracks."""
@@ -238,31 +273,114 @@ class PlaylistView(QTableWidget):
         if not item:
             return
 
-        original_index = item.data(Qt.ItemDataRole.UserRole)
-        if original_index is None:
+        # Get all selected indices
+        selected_indices = self.get_selected_indices()
+        if not selected_indices:
             return
 
-        menu = QMenu(self)
+        # For display purposes
+        count = len(selected_indices)
+        suffix = f" ({count} tracks)" if count > 1 else ""
 
-        play_next_action = QAction("Play Next  [n]", self)
-        play_next_action.triggered.connect(lambda: self.play_next_requested.emit(original_index))
+        menu = QMenu(self)
+        menu.setStyleSheet(f"""
+            QMenu {{
+                background-color: {BG_PRIMARY};
+                border: 1px solid {BORDER};
+                padding: 4px;
+            }}
+            QMenu::item {{
+                color: {TEXT_NORMAL};
+                padding: 6px 20px;
+            }}
+            QMenu::item:selected {{
+                background-color: {ACCENT_DIM};
+            }}
+            QMenu::separator {{
+                height: 1px;
+                background-color: {BORDER};
+                margin: 4px 8px;
+            }}
+        """)
+
+        play_next_action = QAction(f"Play Next{suffix}  [n]", self)
+        play_next_action.triggered.connect(lambda: self.play_next_requested.emit(selected_indices))
         menu.addAction(play_next_action)
 
-        add_queue_action = QAction("Add to Queue  [a]", self)
-        add_queue_action.triggered.connect(lambda: self.add_to_queue_requested.emit(original_index))
+        add_queue_action = QAction(f"Add to Queue{suffix}  [a]", self)
+        add_queue_action.triggered.connect(lambda: self.add_to_queue_requested.emit(selected_indices))
         menu.addAction(add_queue_action)
+
+        menu.addSeparator()
+
+        # Add to Playlist submenu
+        playlist_menu = menu.addMenu(f"Add to Playlist{suffix}")
+        playlist_menu.setStyleSheet(menu.styleSheet())
+
+        for playlist in self._saved_playlists:
+            action = playlist_menu.addAction(playlist.name)
+            action.triggered.connect(
+                lambda checked, pid=playlist.id: self.add_to_playlist_requested.emit(selected_indices, pid)
+            )
+
+        if self._saved_playlists:
+            playlist_menu.addSeparator()
+
+        new_playlist_action = playlist_menu.addAction("+ New Playlist...")
+        new_playlist_action.triggered.connect(
+            lambda: self.create_playlist_with_tracks_requested.emit(selected_indices)
+        )
+
+        # Remove from Playlist (only when viewing a user playlist)
+        if self._current_view_playlist_id is not None:
+            menu.addSeparator()
+            remove_action = QAction(f"Remove from Playlist{suffix}  [Del]", self)
+            remove_action.triggered.connect(
+                lambda: self.remove_from_playlist_requested.emit(selected_indices)
+            )
+            menu.addAction(remove_action)
+
+        # View Artist option (only for single selection)
+        if count == 1:
+            menu.addSeparator()
+            artist_item = self.item(item.row(), 2)  # Column 2 is Artist
+            if artist_item:
+                artist_name = artist_item.text()
+                if artist_name and artist_name != "Unknown":
+                    view_artist_action = QAction(f"View Artist: {artist_name}", self)
+                    view_artist_action.triggered.connect(
+                        lambda: self.view_artist_requested.emit(artist_name)
+                    )
+                    menu.addAction(view_artist_action)
 
         menu.exec(self.mapToGlobal(position))
 
     def keyPressEvent(self, event: QKeyEvent):
         """Handle keyboard shortcuts for queue actions."""
         if event.key() == Qt.Key.Key_N:
-            index = self.get_selected_index()
-            if index >= 0:
-                self.play_next_requested.emit(index)
+            indices = self.get_selected_indices()
+            if indices:
+                self.play_next_requested.emit(indices)
         elif event.key() == Qt.Key.Key_A:
-            index = self.get_selected_index()
-            if index >= 0:
-                self.add_to_queue_requested.emit(index)
+            indices = self.get_selected_indices()
+            if indices:
+                self.add_to_queue_requested.emit(indices)
+        elif event.key() == Qt.Key.Key_Delete:
+            # Remove from playlist (only when viewing a user playlist)
+            if self._current_view_playlist_id is not None:
+                indices = self.get_selected_indices()
+                if indices:
+                    self.remove_from_playlist_requested.emit(indices)
+        elif event.key() == Qt.Key.Key_G:
+            # Go to artist view (single selection only)
+            indices = self.get_selected_indices()
+            if len(indices) == 1:
+                row = self._find_visual_row_for_index(indices[0])
+                if row >= 0:
+                    artist_item = self.item(row, 2)  # Column 2 is Artist
+                    if artist_item:
+                        artist_name = artist_item.text()
+                        if artist_name and artist_name != "Unknown":
+                            self.view_artist_requested.emit(artist_name)
         else:
             super().keyPressEvent(event)

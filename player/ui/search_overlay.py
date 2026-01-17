@@ -88,13 +88,19 @@ class SearchResultDelegate(QStyledItemDelegate):
 
 
 class SearchOverlay(QDialog):
-    """Telescope-style search overlay for finding tracks."""
+    """Telescope-style search overlay for finding tracks and artists."""
 
     track_selected = pyqtSignal(int)  # Emits playlist index
+    artist_selected = pyqtSignal(str)  # Emits artist name
+
+    # Item types stored in UserRole+1
+    ITEM_TYPE_TRACK = 0
+    ITEM_TYPE_ARTIST = 1
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self._playlist: Playlist | None = None
+        self._library_tracks: list[Track] = []  # Full library for artist search
         self._results: list[SearchResult] = []
         self._debounce_timer = QTimer()
         self._debounce_timer.setSingleShot(True)
@@ -241,6 +247,10 @@ class SearchOverlay(QDialog):
         """Set the playlist to search."""
         self._playlist = playlist
 
+    def set_library_tracks(self, tracks: list[Track]):
+        """Set the full library tracks for artist search."""
+        self._library_tracks = tracks
+
     def show_search(self):
         """Show the search overlay and focus input."""
         if self.parent():
@@ -271,8 +281,25 @@ class SearchOverlay(QDialog):
             self._count_label.setText("")
             return
 
+        query_lower = query.lower()
+
+        # Search for matching artists first
+        artist_matches = self._find_matching_artists(query_lower)
+
+        # Add artist results at the top
+        for artist_name, track_count in artist_matches[:5]:  # Limit to 5 artists
+            display_text = f"{artist_name}\nARTIST  •  {track_count} tracks"
+            item = QListWidgetItem(display_text)
+            item.setData(Qt.ItemDataRole.UserRole, artist_name)
+            item.setData(Qt.ItemDataRole.UserRole + 1, self.ITEM_TYPE_ARTIST)
+            self._results_list.addItem(item)
+
+        # Search for tracks
         self._results = fuzzy_search(query, self._playlist.tracks, limit=50)
-        self._count_label.setText(f"{len(self._results)} results")
+
+        # Count total results
+        total = len(artist_matches[:5]) + len(self._results)
+        self._count_label.setText(f"{total} results")
 
         for result in self._results:
             track = result.track
@@ -281,17 +308,53 @@ class SearchOverlay(QDialog):
 
             item = QListWidgetItem(display_text)
             item.setData(Qt.ItemDataRole.UserRole, result.index)
+            item.setData(Qt.ItemDataRole.UserRole + 1, self.ITEM_TYPE_TRACK)
 
             self._results_list.addItem(item)
 
-        if self._results:
+        if self._results_list.count() > 0:
             self._results_list.setCurrentRow(0)
+
+    def _find_matching_artists(self, query: str) -> list[tuple[str, int]]:
+        """Find artists matching the query, returns (artist_name, track_count) tuples."""
+        # Use library tracks for comprehensive artist search
+        tracks = self._library_tracks if self._library_tracks else (self._playlist.tracks if self._playlist else [])
+
+        # Build artist -> track count mapping
+        artist_counts: dict[str, int] = {}
+        for track in tracks:
+            if track.artist and track.artist != "Unknown":
+                artist_counts[track.artist] = artist_counts.get(track.artist, 0) + 1
+
+        # Find matches
+        matches = []
+        for artist, count in artist_counts.items():
+            if query in artist.lower():
+                matches.append((artist, count))
+
+        # Sort by relevance: exact start match first, then by track count
+        matches.sort(key=lambda x: (not x[0].lower().startswith(query), -x[1]))
+
+        return matches
 
     def _on_item_activated(self, item: QListWidgetItem):
         """Handle item selection."""
-        index = item.data(Qt.ItemDataRole.UserRole)
-        if index is not None:
-            self.track_selected.emit(index)
+        item_type = item.data(Qt.ItemDataRole.UserRole + 1)
+        data = item.data(Qt.ItemDataRole.UserRole)
+
+        if item_type == self.ITEM_TYPE_ARTIST:
+            # Artist selected - emit artist name
+            if data:
+                self.artist_selected.emit(data)
+                self.close_search()
+        elif item_type == self.ITEM_TYPE_TRACK:
+            # Track selected - emit playlist index
+            if data is not None:
+                self.track_selected.emit(data)
+                self.close_search()
+        elif data is not None:
+            # Fallback for old behavior (no type set)
+            self.track_selected.emit(data)
             self.close_search()
 
     def close_search(self):

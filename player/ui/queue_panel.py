@@ -172,8 +172,17 @@ class QueuePanel(QWidget):
         self._playlist: Playlist | None = None
         self._is_expanded = False
         self._shuffle_enabled = False
+        # Playback state (separate from view playlist)
+        self._playback_tracks: list[Track] = []
+        self._playback_index: int = -1
         self._setup_ui()
         self._connect_signals()
+
+    def set_playback_state(self, tracks: list[Track], index: int):
+        """Update the playback state for upcoming tracks preview."""
+        self._playback_tracks = tracks
+        self._playback_index = index
+        self._refresh()
 
     def _setup_ui(self):
         self.setFixedWidth(self.COLLAPSED_WIDTH)
@@ -302,11 +311,9 @@ class QueuePanel(QWidget):
         self._queue.queue_changed.connect(self._refresh)
 
     def set_playlist(self, playlist: Playlist):
-        """Set the playlist for upcoming tracks preview."""
+        """Set the playlist for shuffle state sync."""
         self._playlist = playlist
-        self._playlist.current_changed.connect(self._refresh)
         self._playlist.shuffle_changed.connect(self._on_playlist_shuffle_changed)
-        self._playlist.tracks_changed.connect(self._refresh)
 
     def set_shuffle_enabled(self, enabled: bool):
         """Update shuffle state from external source."""
@@ -373,11 +380,15 @@ class QueuePanel(QWidget):
             total_duration += track.duration
             position += 1
 
-        # Add divider if we have both queued and upcoming
+        # Get upcoming tracks from playback state (not view playlist)
         upcoming = []
-        if self._playlist:
-            upcoming = self._playlist.get_upcoming_tracks(self.UPCOMING_COUNT)
+        if self._playback_tracks and self._playback_index >= 0:
+            # Get tracks after current playback position
+            start_idx = self._playback_index + 1
+            end_idx = min(start_idx + self.UPCOMING_COUNT, len(self._playback_tracks))
+            upcoming = self._playback_tracks[start_idx:end_idx]
 
+        # Add divider if we have both queued and upcoming
         if queue_count > 0 and upcoming:
             divider = QListWidgetItem()
             divider.setData(Qt.ItemDataRole.UserRole + 1, ITEM_TYPE_DIVIDER)

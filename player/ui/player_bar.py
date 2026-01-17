@@ -6,12 +6,18 @@ from PyQt6.QtWidgets import (
     QWidget,
     QHBoxLayout,
     QVBoxLayout,
+    QGridLayout,
     QPushButton,
     QSlider,
     QLabel,
+    QFrame,
 )
 
-from player.theme.lainchan import BG_TERTIARY, TEXT_MUTED, ACCENT
+from player.theme.lainchan import (
+    BG_PRIMARY, BG_SECONDARY, BG_TERTIARY,
+    TEXT_NORMAL, TEXT_MUTED, TEXT_DIM,
+    ACCENT, ACCENT_DIM, BORDER,
+)
 
 
 class PlayerBar(QWidget):
@@ -32,92 +38,193 @@ class PlayerBar(QWidget):
         self._setup_ui()
 
     def _setup_ui(self):
-        self.setFixedHeight(80)
-        self.setStyleSheet(f"background-color: {BG_TERTIARY};")
+        self.setFixedHeight(120)
+        self.setStyleSheet(f"background-color: {BG_PRIMARY};")
 
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(16, 8, 16, 8)
-        layout.setSpacing(4)
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
 
-        # Row 1: Controls + Seekbar + Time
-        row1 = QHBoxLayout()
-        row1.setSpacing(12)
+        # Top accent border (2px)
+        accent_bar = QFrame()
+        accent_bar.setFixedHeight(2)
+        accent_bar.setStyleSheet(f"background-color: {ACCENT};")
+        main_layout.addWidget(accent_bar)
 
-        # Playback buttons - using ASCII text
+        # Content area
+        content = QWidget()
+        content.setStyleSheet(f"background-color: {BG_PRIMARY};")
+        content_layout = QVBoxLayout(content)
+        content_layout.setContentsMargins(16, 12, 16, 12)
+        content_layout.setSpacing(8)
+
+        # Row 1: Track info with labels
+        info_grid = QGridLayout()
+        info_grid.setContentsMargins(0, 0, 0, 0)
+        info_grid.setHorizontalSpacing(12)
+        info_grid.setVerticalSpacing(2)
+
+        # Labels column
+        track_label = QLabel("TRACK")
+        track_label.setStyleSheet(f"color: {TEXT_DIM}; font-size: 10px;")
+        info_grid.addWidget(track_label, 0, 0)
+
+        artist_label = QLabel("ARTIST")
+        artist_label.setStyleSheet(f"color: {TEXT_DIM}; font-size: 10px;")
+        info_grid.addWidget(artist_label, 1, 0)
+
+        source_label = QLabel("SOURCE")
+        source_label.setStyleSheet(f"color: {TEXT_DIM}; font-size: 10px;")
+        info_grid.addWidget(source_label, 2, 0)
+
+        # Values column
+        self._track_value = QLabel("—")
+        self._track_value.setStyleSheet(f"color: {TEXT_NORMAL}; font-size: 13px;")
+        info_grid.addWidget(self._track_value, 0, 1)
+
+        self._artist_value = QLabel("—")
+        self._artist_value.setStyleSheet(f"color: {TEXT_NORMAL}; font-size: 13px;")
+        info_grid.addWidget(self._artist_value, 1, 1)
+
+        self._source_value = QLabel("—")
+        self._source_value.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 11px;")
+        info_grid.addWidget(self._source_value, 2, 1)
+
+        # Make values column stretch
+        info_grid.setColumnStretch(1, 1)
+
+        content_layout.addLayout(info_grid)
+
+        # Row 2: Seek bar with position label
+        seek_row = QHBoxLayout()
+        seek_row.setSpacing(12)
+
+        self._seek_slider = QSlider(Qt.Orientation.Horizontal)
+        self._seek_slider.setRange(0, 1000)
+        self._seek_slider.setValue(0)
+        self._seek_slider.setStyleSheet(f"""
+            QSlider::groove:horizontal {{
+                background-color: {BORDER};
+                height: 4px;
+            }}
+            QSlider::handle:horizontal {{
+                background-color: {TEXT_NORMAL};
+                width: 8px;
+                height: 8px;
+                margin: -2px 0;
+            }}
+            QSlider::handle:horizontal:hover {{
+                background-color: {ACCENT};
+            }}
+            QSlider::sub-page:horizontal {{
+                background-color: {ACCENT};
+            }}
+        """)
+        self._seek_slider.sliderPressed.connect(self._on_seek_start)
+        self._seek_slider.sliderReleased.connect(self._on_seek_end)
+        self._seek_slider.sliderMoved.connect(self._on_seek_moved)
+        seek_row.addWidget(self._seek_slider, 1)
+
+        position_label = QLabel("POSITION")
+        position_label.setStyleSheet(f"color: {TEXT_DIM}; font-size: 10px;")
+        seek_row.addWidget(position_label)
+
+        self._time_label = QLabel("0:00/0:00")
+        self._time_label.setStyleSheet(f"color: {TEXT_NORMAL}; font-size: 11px; min-width: 70px;")
+        self._time_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        seek_row.addWidget(self._time_label)
+
+        content_layout.addLayout(seek_row)
+
+        # Row 3: Transport controls + Level
+        controls_row = QHBoxLayout()
+        controls_row.setSpacing(16)
+
+        # Transport label
+        transport_label = QLabel("TRANSPORT")
+        transport_label.setStyleSheet(f"color: {TEXT_DIM}; font-size: 10px;")
+        controls_row.addWidget(transport_label)
+
+        # Transport buttons - text only, no backgrounds
         self._prev_btn = QPushButton("|<")
         self._play_btn = QPushButton(">")
         self._next_btn = QPushButton(">|")
 
+        button_style = f"""
+            QPushButton {{
+                background-color: transparent;
+                color: {TEXT_NORMAL};
+                border: 1px solid {BORDER};
+                padding: 4px 8px;
+                font-size: 12px;
+                font-weight: bold;
+                min-width: 28px;
+            }}
+            QPushButton:hover {{
+                border-color: {ACCENT};
+                color: {ACCENT};
+            }}
+            QPushButton:pressed {{
+                background-color: {ACCENT_DIM};
+            }}
+        """
+
         for btn in [self._prev_btn, self._play_btn, self._next_btn]:
-            btn.setFixedSize(36, 36)
+            btn.setStyleSheet(button_style)
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
 
         self._prev_btn.clicked.connect(self.prev_clicked.emit)
         self._play_btn.clicked.connect(self._on_play_clicked)
         self._next_btn.clicked.connect(self.next_clicked.emit)
 
-        row1.addWidget(self._prev_btn)
-        row1.addWidget(self._play_btn)
-        row1.addWidget(self._next_btn)
+        controls_row.addWidget(self._prev_btn)
+        controls_row.addWidget(self._play_btn)
+        controls_row.addWidget(self._next_btn)
 
-        # Seek bar
-        self._seek_slider = QSlider(Qt.Orientation.Horizontal)
-        self._seek_slider.setRange(0, 1000)
-        self._seek_slider.setValue(0)
-        self._seek_slider.sliderPressed.connect(self._on_seek_start)
-        self._seek_slider.sliderReleased.connect(self._on_seek_end)
-        self._seek_slider.sliderMoved.connect(self._on_seek_moved)
-        row1.addWidget(self._seek_slider, 1)
+        controls_row.addStretch()
 
-        # Time display
-        self._time_label = QLabel("0:00 / 0:00")
-        self._time_label.setStyleSheet(f"color: {TEXT_MUTED}; min-width: 90px;")
-        self._time_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        row1.addWidget(self._time_label)
-
-        layout.addLayout(row1)
-
-        # Row 2: Track info + Volume
-        row2 = QHBoxLayout()
-        row2.setSpacing(12)
-
-        # Track info (left side)
-        info_layout = QVBoxLayout()
-        info_layout.setSpacing(0)
-
-        self._track_label = QLabel("No track loaded")
-        self._track_label.setStyleSheet("font-size: 14px; font-weight: bold;")
-
-        self._detail_label = QLabel("")
-        self._detail_label.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 11px;")
-
-        info_layout.addWidget(self._track_label)
-        info_layout.addWidget(self._detail_label)
-        row2.addLayout(info_layout, 1)
-
-        # Volume control (right side)
-        volume_layout = QHBoxLayout()
-        volume_layout.setSpacing(8)
-
-        self._volume_icon = QLabel("VOL")
-        volume_layout.addWidget(self._volume_icon)
+        # Level (volume) control
+        level_label = QLabel("LEVEL")
+        level_label.setStyleSheet(f"color: {TEXT_DIM}; font-size: 10px;")
+        controls_row.addWidget(level_label)
 
         self._volume_slider = QSlider(Qt.Orientation.Horizontal)
         self._volume_slider.setRange(0, 100)
         self._volume_slider.setValue(75)
         self._volume_slider.setFixedWidth(100)
+        self._volume_slider.setStyleSheet(f"""
+            QSlider::groove:horizontal {{
+                background-color: {BORDER};
+                height: 4px;
+            }}
+            QSlider::handle:horizontal {{
+                background-color: {TEXT_NORMAL};
+                width: 8px;
+                height: 8px;
+                margin: -2px 0;
+            }}
+            QSlider::handle:horizontal:hover {{
+                background-color: {ACCENT};
+            }}
+            QSlider::sub-page:horizontal {{
+                background-color: {ACCENT_DIM};
+            }}
+        """)
         self._volume_slider.valueChanged.connect(self.volume_changed.emit)
-        volume_layout.addWidget(self._volume_slider)
+        controls_row.addWidget(self._volume_slider)
 
         self._volume_label = QLabel("75%")
-        self._volume_label.setStyleSheet(f"color: {TEXT_MUTED}; min-width: 35px;")
+        self._volume_label.setStyleSheet(f"color: {TEXT_NORMAL}; font-size: 11px; min-width: 32px;")
+        self._volume_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         self._volume_slider.valueChanged.connect(
             lambda v: self._volume_label.setText(f"{v}%")
         )
-        volume_layout.addWidget(self._volume_label)
+        controls_row.addWidget(self._volume_label)
 
-        row2.addLayout(volume_layout)
-        layout.addLayout(row2)
+        content_layout.addLayout(controls_row)
+
+        main_layout.addWidget(content, 1)
 
     def _on_play_clicked(self):
         if self._is_playing:
@@ -137,7 +244,7 @@ class PlayerBar(QWidget):
         if self._seeking and self._duration_ms > 0:
             current_ms = int((value / 1000.0) * self._duration_ms)
             self._time_label.setText(
-                f"{_format_time(current_ms)} / {_format_time(self._duration_ms)}"
+                f"{_format_time(current_ms)}/{_format_time(self._duration_ms)}"
             )
 
     def set_playing(self, playing: bool):
@@ -151,7 +258,7 @@ class PlayerBar(QWidget):
             self._seek_slider.setValue(int(position * 1000))
             if self._duration_ms > 0:
                 self._time_label.setText(
-                    f"{_format_time(current_ms)} / {_format_time(self._duration_ms)}"
+                    f"{_format_time(current_ms)}/{_format_time(self._duration_ms)}"
                 )
 
     def set_duration(self, duration_ms: int):
@@ -161,28 +268,31 @@ class PlayerBar(QWidget):
     def set_track_info(self, title: str, artist: str, album: str, year: str,
                        codec: str, sample_info: str, bitrate: str):
         """Update track info display."""
-        self._track_label.setText(f"{title} - {artist}")
+        self._track_value.setText(title if title else "—")
+        self._artist_value.setText(artist if artist else "—")
 
-        details = []
+        # Build source line: Album (Year) | Codec | Sample Info | Bitrate
+        source_parts = []
         if album:
-            album_text = f"{album}"
+            album_text = album
             if year:
                 album_text += f" ({year})"
-            details.append(album_text)
+            source_parts.append(album_text)
         if codec:
-            details.append(codec)
+            source_parts.append(codec.upper())
         if sample_info:
-            details.append(sample_info)
+            source_parts.append(sample_info.upper())
         if bitrate:
-            details.append(bitrate)
+            source_parts.append(bitrate.upper())
 
-        self._detail_label.setText(" | ".join(details))
+        self._source_value.setText("  │  ".join(source_parts) if source_parts else "—")
 
     def clear_track_info(self):
         """Clear track info display."""
-        self._track_label.setText("No track loaded")
-        self._detail_label.setText("")
-        self._time_label.setText("0:00 / 0:00")
+        self._track_value.setText("—")
+        self._artist_value.setText("—")
+        self._source_value.setText("—")
+        self._time_label.setText("0:00/0:00")
         self._seek_slider.setValue(0)
         self._duration_ms = 0
 

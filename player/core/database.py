@@ -1,6 +1,8 @@
-"""SQLite database for caching track metadata."""
+"""SQLite database for caching track metadata and playlists."""
 
 import sqlite3
+import uuid
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -44,6 +46,28 @@ class LibraryDatabase:
             """)
             conn.execute("""
                 CREATE INDEX IF NOT EXISTS idx_artist_album ON tracks(artist, album)
+            """)
+            # Playlists tables
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS playlists (
+                    id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    created_at REAL NOT NULL,
+                    modified_at REAL NOT NULL
+                )
+            """)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS playlist_tracks (
+                    id INTEGER PRIMARY KEY,
+                    playlist_id TEXT NOT NULL,
+                    track_path TEXT NOT NULL,
+                    position INTEGER NOT NULL,
+                    FOREIGN KEY (playlist_id) REFERENCES playlists(id) ON DELETE CASCADE
+                )
+            """)
+            conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_playlist_tracks_playlist
+                ON playlist_tracks(playlist_id, position)
             """)
             conn.commit()
 
@@ -178,3 +202,140 @@ class LibraryDatabase:
         with self._connect() as conn:
             cursor = conn.execute("SELECT COUNT(*) FROM tracks")
             return cursor.fetchone()[0]
+
+    # --- Playlist methods ---
+
+    def get_all_playlists(self) -> list[dict]:
+        """Get all playlists (without tracks)."""
+        with self._connect() as conn:
+            cursor = conn.execute("""
+                SELECT id, name, created_at, modified_at
+                FROM playlists
+                ORDER BY name
+            """)
+            return [dict(row) for row in cursor.fetchall()]
+
+    def get_playlist(self, playlist_id: str) -> dict | None:
+        """Get a playlist by ID."""
+        with self._connect() as conn:
+            cursor = conn.execute(
+                "SELECT id, name, created_at, modified_at FROM playlists WHERE id = ?",
+                (playlist_id,)
+            )
+            row = cursor.fetchone()
+            return dict(row) if row else None
+
+    def get_playlist_tracks(self, playlist_id: str) -> list[str]:
+        """Get track paths for a playlist in order."""
+        with self._connect() as conn:
+            cursor = conn.execute("""
+                SELECT track_path FROM playlist_tracks
+                WHERE playlist_id = ?
+                ORDER BY position
+            """, (playlist_id,))
+            return [row["track_path"] for row in cursor.fetchall()]
+
+    def get_playlist_track_count(self, playlist_id: str) -> int:
+        """Get number of tracks in a playlist."""
+        with self._connect() as conn:
+            cursor = conn.execute(
+                "SELECT COUNT(*) FROM playlist_tracks WHERE playlist_id = ?",
+                (playlist_id,)
+            )
+            return cursor.fetchone()[0]
+
+    def create_playlist(self, name: str) -> str:
+        """Create a new playlist. Returns the playlist ID."""
+        playlist_id = str(uuid.uuid4())
+        now = datetime.now().timestamp()
+        with self._connect() as conn:
+            conn.execute(
+                "INSERT INTO playlists (id, name, created_at, modified_at) VALUES (?, ?, ?, ?)",
+                (playlist_id, name, now, now)
+            )
+            conn.commit()
+        return playlist_id
+
+    def rename_playlist(self, playlist_id: str, name: str) -> None:
+        """Rename a playlist."""
+        now = datetime.now().timestamp()
+        with self._connect() as conn:
+            conn.execute(
+                "UPDATE playlists SET name = ?, modified_at = ? WHERE id = ?",
+                (name, now, playlist_id)
+            )
+            conn.commit()
+
+    def delete_playlist(self, playlist_id: str) -> None:
+        """Delete a playlist and its tracks."""
+        with self._connect() as conn:
+            conn.execute("DELETE FROM playlist_tracks WHERE playlist_id = ?", (playlist_id,))
+            conn.execute("DELETE FROM playlists WHERE id = ?", (playlist_id,))
+            conn.commit()
+
+    def add_tracks_to_playlist(self, playlist_id: str, track_paths: list[str]) -> None:
+        """Add tracks to the end of a playlist."""
+        if not track_paths:
+            return
+        now = datetime.now().timestamp()
+        with self._connect() as conn:
+            # Get current max position
+            cursor = conn.execute(
+                "SELECT COALESCE(MAX(position), -1) FROM playlist_tracks WHERE playlist_id = ?",
+                (playlist_id,)
+            )
+            max_pos = cursor.fetchone()[0]
+
+            # Insert new tracks
+            conn.executemany(
+                "INSERT INTO playlist_tracks (playlist_id, track_path, position) VALUES (?, ?, ?)",
+                [(playlist_id, path, max_pos + 1 + i) for i, path in enumerate(track_paths)]
+            )
+            conn.execute(
+                "UPDATE playlists SET modified_at = ? WHERE id = ?",
+                (now, playlist_id)
+            )
+            conn.commit()
+
+    def remove_tracks_from_playlist(self, playlist_id: str, track_paths: list[str]) -> None:
+        """Remove tracks from a playlist."""
+        if not track_paths:
+            return
+        now = datetime.now().timestamp()
+        with self._connect() as conn:
+            placeholders = ",".join("?" * len(track_paths))
+            conn.execute(
+                f"DELETE FROM playlist_tracks WHERE playlist_id = ? AND track_path IN ({placeholders})",
+                [playlist_id] + track_paths
+            )
+            # Reorder remaining tracks
+            cursor = conn.execute(
+                "SELECT id FROM playlist_tracks WHERE playlist_id = ? ORDER BY position",
+                (playlist_id,)
+            )
+            for i, row in enumerate(cursor.fetchall()):
+                conn.execute(
+                    "UPDATE playlist_tracks SET position = ? WHERE id = ?",
+                    (i, row["id"])
+                )
+            conn.execute(
+                "UPDATE playlists SET modified_at = ? WHERE id = ?",
+                (now, playlist_id)
+            )
+            conn.commit()
+
+    def set_playlist_tracks(self, playlist_id: str, track_paths: list[str]) -> None:
+        """Replace all tracks in a playlist."""
+        now = datetime.now().timestamp()
+        with self._connect() as conn:
+            conn.execute("DELETE FROM playlist_tracks WHERE playlist_id = ?", (playlist_id,))
+            if track_paths:
+                conn.executemany(
+                    "INSERT INTO playlist_tracks (playlist_id, track_path, position) VALUES (?, ?, ?)",
+                    [(playlist_id, path, i) for i, path in enumerate(track_paths)]
+                )
+            conn.execute(
+                "UPDATE playlists SET modified_at = ? WHERE id = ?",
+                (now, playlist_id)
+            )
+            conn.commit()

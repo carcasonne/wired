@@ -81,32 +81,67 @@ Add a collapsible section below the album art/metadata:
 
 ---
 
-### 2. Filter Bar (Above Playlist View)
+### 2. Filter Overlay (Telescope-Style Popup)
 
-A horizontal bar that appears when filtering is active:
+A modal overlay similar to the search overlay, but for building filters:
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│ FILTER: [Artist: Blondie ▼] [Album: Parallel Lines ▼] [× Clear]│
+│  > FILTER                                                       │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  ACTIVE FILTERS:                                                │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │ Artist: Blondie                                    [×]  │   │
+│  │ Year: 1978                                         [×]  │   │
+│  └─────────────────────────────────────────────────────────┘   │
+│                                                                 │
+│  ADD FILTER:                                                    │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │ > artist:                                               │   │
+│  └─────────────────────────────────────────────────────────┘   │
+│                                                                 │
+│  artist:blondie    album:parallel    year:1978                 │
+│  artist:beatles    album:abbey       year:1979                 │
+│  artist:bowie      album:heroes      year:1980                 │
+│                                                                 │
+│  ──────────────────────────────────────────────────────────    │
+│  [Apply]  [Clear All]  [Save as Playlist...]                   │
+│                                                                 │
+│  Matching: 12 tracks                                           │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-**Filter Types:**
-- **Artist** - Dropdown with all artists in current view
-- **Album** - Dropdown with albums (filtered by artist if set)
-- **Year** - Dropdown or range picker
-- **Genre** - If metadata available (many files don't have this)
-- **Codec** - FLAC, MP3, etc.
-
-**Activation:**
-- Click column header dropdown arrow → filter by that column
-- Or use keyboard: `f` to open filter mode, type to search
-- Filters are additive (AND logic)
+**Input Format:**
+- Type `artist:` to see artist suggestions
+- Type `album:` to see album suggestions
+- Type `year:` to see year suggestions
+- Type `codec:` to filter by format (FLAC, MP3, etc.)
+- Fuzzy matching on values (like search)
 
 **Behavior:**
-- Filtering creates a **temporary view**, not a new playlist
-- "Save as Playlist" button appears when filter is active
-- Clear button removes all filters, returns to full view
+- Filters are **stackable** (AND logic) - add multiple filters
+- Each filter shows as a "chip" with [×] to remove
+- "Apply" closes overlay and shows filtered view
+- "Clear All" removes all filters, returns to library
+- "Save as Playlist..." creates static playlist from current filter results
+- Live "Matching: N tracks" count updates as you build filters
+
+**Filter Indicator in Main View:**
+When filters are active, show a small indicator bar:
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ FILTERED: Artist: Blondie, Year: 1978  [Edit] [× Clear]  (12)  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Keyboard:**
+- `f` - Open filter overlay
+- Inside overlay:
+  - `Enter` - Apply filters
+  - `Esc` - Cancel (keep previous filters)
+  - `Tab` - Cycle through filter type suggestions
+  - `Backspace` on empty input - Remove last filter
 
 ---
 
@@ -202,8 +237,8 @@ Two concepts:
 
 | Key | Action |
 |-----|--------|
-| `f` | Open filter bar / focus filter |
-| `Esc` | Clear filter / close filter bar |
+| `f` | Open filter overlay |
+| `Esc` | Close overlay / clear filters (in main view) |
 | `Ctrl+N` | New playlist |
 | `Ctrl+S` | Save current filter as playlist |
 | `Ctrl+I` | Import M3U |
@@ -250,11 +285,18 @@ Filter by Album: "Parallel Lines"
 3. Menu integration
 4. Handle missing files gracefully
 
-### Phase D: Filter Bar
-1. Filter bar UI component
-2. Column-based filtering (artist, album, year, codec)
-3. "Save as Playlist" from filter
-4. Keyboard navigation
+### Phase D: Filter Overlay
+1. Filter overlay UI (telescope-style popup)
+2. Filter input with type prefixes (artist:, album:, year:, codec:)
+3. Stackable filters with chips display
+4. Live match count
+5. "Save as Playlist" from filter results
+6. Filter indicator bar in main view when active
+
+### Phase E: Smart Playlists (Future)
+1. Save filter criteria (not just results) as "smart playlist"
+2. Smart playlists auto-update when library changes
+3. Visual distinction between static and smart playlists
 
 ---
 
@@ -300,6 +342,8 @@ Filter by Album: "Parallel Lines"
    - Allow user to tag tracks manually (Phase 5+)
 
 4. **Nested folders as pseudo-playlists?** E.g., auto-create "playlists" from folder structure. Could be nice but adds complexity.
+
+5. **Filter persistence across sessions?** Should active filters be saved and restored on startup? Probably not - start fresh with full library.
 
 ---
 
