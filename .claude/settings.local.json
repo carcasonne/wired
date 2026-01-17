@@ -8,7 +8,8 @@
       "Bash(timeout 5 source .venv/bin/activate)",
       "Bash(timeout 5 .venv/bin/python:*)",
       "Bash(timeout 5 venv/bin/python:*)",
-      "Bash(tree:*)"
+      "Bash(tree:*)",
+      "WebFetch(domain:specifications.freedesktop.org)"
     ]
   }
 }

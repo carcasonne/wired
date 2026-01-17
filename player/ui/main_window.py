@@ -23,6 +23,7 @@ from player.core.playlist import Playlist
 from player.core.playlist_manager import PlaylistManager
 from player.core.queue import PlaybackQueue
 from player.core.metadata import Track
+from player.core.mpris import create_mpris_service
 from player.theme.lainchan import get_stylesheet, BG_PRIMARY, BG_SECONDARY, TEXT_NORMAL, TEXT_MUTED, TEXT_DIM, ACCENT, BORDER
 from player.ui.player_bar import PlayerBar
 from player.ui.playlist_view import PlaylistView
@@ -98,10 +99,14 @@ class MainWindow(QMainWindow):
         self._scan_thread: QThread | None = None
         self._scan_worker: LibraryScanWorker | None = None
 
+        # MPRIS2 service for system integration
+        self._mpris = None
+
         self._setup_ui()
         self._setup_signals()
         self._setup_shortcuts()
         self._setup_menu()
+        self._setup_mpris()
         self._restore_state()
 
         # Load initial directory - prefer saved path, then provided path
@@ -295,6 +300,75 @@ class MainWindow(QMainWindow):
 
         # Playlist manager signals
         self._playlist_manager.playlists_changed.connect(self._refresh_playlists)
+
+    def _setup_mpris(self):
+        """Initialize MPRIS2 D-Bus service for system integration."""
+        self._mpris = create_mpris_service(self)
+        if self._mpris:
+            # Connect volume changes to MPRIS
+            self._player_bar.volume_changed.connect(self._mpris.update_volume)
+
+    # ==================== MPRIS2 Callbacks ====================
+
+    def raise_window(self):
+        """Bring window to front (MPRIS callback)."""
+        self.show()
+        self.raise_()
+        self.activateWindow()
+
+    def quit_app(self):
+        """Quit application (MPRIS callback)."""
+        self.close()
+
+    def play_next(self):
+        """Play next track (MPRIS callback)."""
+        self._play_next()
+
+    def play_previous(self):
+        """Play previous track (MPRIS callback)."""
+        self._play_previous()
+
+    def pause(self):
+        """Pause playback (MPRIS callback)."""
+        if self._audio.get_state() == "playing":
+            self._audio.pause()
+
+    def play(self):
+        """Start/resume playback (MPRIS callback)."""
+        state = self._audio.get_state()
+        if state == "paused":
+            self._audio.pause()  # Toggle resume
+        elif state == "stopped" and self._current_track:
+            self._audio.play(str(self._current_track.filepath))
+
+    def toggle_play_pause(self):
+        """Toggle play/pause (MPRIS callback)."""
+        self._toggle_play_pause()
+
+    def stop(self):
+        """Stop playback (MPRIS callback)."""
+        self._audio.stop()
+
+    def seek_relative(self, offset_ms: int):
+        """Seek by offset in milliseconds (MPRIS callback)."""
+        current_ms = self._audio.get_time_ms()
+        new_pos = max(0, current_ms + offset_ms)
+        duration = self._audio.get_duration()
+        if duration > 0:
+            position = new_pos / (duration * 1000)
+            self._audio.seek(min(1.0, position))
+
+    def seek_absolute(self, position_ms: int):
+        """Seek to absolute position in milliseconds (MPRIS callback)."""
+        duration = self._audio.get_duration()
+        if duration > 0:
+            position = position_ms / (duration * 1000)
+            self._audio.seek(min(1.0, max(0.0, position)))
+
+    def set_volume(self, volume: int):
+        """Set volume 0-100 (MPRIS callback)."""
+        self._player_bar.set_volume(volume)
+        self._audio.set_volume(volume)
 
     def _setup_shortcuts(self):
         # Space - play/pause
@@ -732,6 +806,9 @@ class MainWindow(QMainWindow):
             track.format_sample_info(),
             track.format_bitrate(),
         )
+        # Update MPRIS with new track
+        if self._mpris:
+            self._mpris.update_track(track)
 
     def _on_position_changed(self, position: float):
         """Handle position update from audio engine."""
@@ -741,6 +818,9 @@ class MainWindow(QMainWindow):
     def _on_state_changed(self, state: str):
         """Handle state change from audio engine."""
         self._player_bar.set_playing(state == "playing")
+        # Update MPRIS
+        if self._mpris:
+            self._mpris.update_playback_status(state)
 
     def _on_track_ended(self):
         """Handle track end - play next (queue or playlist)."""

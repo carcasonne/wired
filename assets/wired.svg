@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="256" height="256" viewBox="0 0 256 256" xmlns="http://www.w3.org/2000/svg">
+  <!-- Simple triangle/play symbol with circuit node -->
+
+  <!-- Play triangle outline -->
+  <polygon points="64,48 64,208 208,128" fill="none" stroke="#4a7c59" stroke-width="12" stroke-linejoin="round"/>
+
+  <!-- Center node -->
+  <circle cx="112" cy="128" r="8" fill="#4a7c59"/>
+</svg>
