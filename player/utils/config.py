@@ -5,7 +5,7 @@ from pathlib import Path
 from dataclasses import dataclass, field
 
 
-CONFIG_DIR = Path.home() / ".config" / "wired-player"
+CONFIG_DIR = Path.home() / ".config" / "wired"
 CONFIG_FILE = CONFIG_DIR / "config.ini"
 
 

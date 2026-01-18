@@ -19,12 +19,14 @@ class Track:
     artist: str = "Unknown"
     album: str = "Unknown"
     year: str = ""
+    genre: str = ""  # semicolon-separated for multiple genres
     track_number: int = 0
     duration: float = 0.0  # seconds
     codec: str = "Unknown"
     bitrate: int = 0  # kbps
     sample_rate: int = 0  # Hz
     bit_depth: int = 0  # bits (for lossless)
+    favorite: bool = False  # user favorite flag (not from file metadata)
     album_art: bytes | None = field(default=None, repr=False)
 
     @classmethod
@@ -36,6 +38,7 @@ class Track:
             artist=data.get("artist", "Unknown"),
             album=data.get("album", "Unknown"),
             year=data.get("year", ""),
+            genre=data.get("genre", ""),
             track_number=data.get("track_number", 0),
             duration=data.get("duration", 0.0),
             codec=data.get("codec", "Unknown"),
@@ -53,6 +56,7 @@ class Track:
             "artist": self.artist,
             "album": self.album,
             "year": self.year,
+            "genre": self.genre,
             "track_number": self.track_number,
             "duration": self.duration,
             "codec": self.codec,
@@ -88,6 +92,7 @@ class Track:
             track.artist = _get_tag(audio, ["artist", "TPE1", "\xa9ART"], "Unknown")
             track.album = _get_tag(audio, ["album", "TALB", "\xa9alb"], "Unknown")
             track.year = _get_tag(audio, ["date", "TDRC", "\xa9day"], "")[:4]  # Just year
+            track.genre = _get_tag(audio, ["genre", "TCON", "\xa9gen"], "")
 
             # Track number
             track_num = _get_tag(audio, ["tracknumber", "TRCK", "trkn"], "0")

@@ -60,6 +60,7 @@ class PlaylistView(QTableWidget):
     add_to_playlist_requested = pyqtSignal(list, str)  # track_indices, playlist_id
     create_playlist_with_tracks_requested = pyqtSignal(list)  # track_indices
     remove_from_playlist_requested = pyqtSignal(list)  # track_indices (only when viewing user playlist)
+    toggle_favorite_requested = pyqtSignal(list)  # track_indices to toggle favorite
     view_artist_requested = pyqtSignal(str)  # artist name
 
     COLUMNS = ["", "Title", "Artist", "Album", "Time", "Codec", "Year"]
@@ -141,8 +142,10 @@ class PlaylistView(QTableWidget):
 
     def _set_row(self, row: int, track: Track):
         """Populate a row with track data."""
+        # Show heart for favorites in first column
+        favorite_indicator = "♥" if track.favorite else ""
         items = [
-            "",  # Playing indicator column (empty, delegate draws the border)
+            favorite_indicator,  # Favorite/playing indicator column
             track.title,
             track.artist,
             track.album,
@@ -179,6 +182,33 @@ class PlaylistView(QTableWidget):
                 return row
         return -1
 
+    def _get_track_at_visual_row(self, visual_row: int) -> Track | None:
+        """Get the Track object at a visual row."""
+        if not self._playlist or visual_row < 0:
+            return None
+        item = self.item(visual_row, 0)
+        if item:
+            playlist_index = item.data(Qt.ItemDataRole.UserRole)
+            if playlist_index is not None and 0 <= playlist_index < len(self._playlist):
+                return self._playlist[playlist_index]
+        return None
+
+    def update_favorite_indicator(self, playlist_indices: list[int]):
+        """Update the favorite indicator for specific tracks."""
+        for playlist_index in playlist_indices:
+            visual_row = self._find_visual_row_for_index(playlist_index)
+            if visual_row >= 0:
+                item = self.item(visual_row, 0)
+                if item:
+                    track = self._get_track_at_visual_row(visual_row)
+                    if track:
+                        # Check if this is the currently playing track
+                        is_playing = playlist_index == self._current_playlist_index
+                        if is_playing:
+                            item.setText("▶♥" if track.favorite else "▶")
+                        else:
+                            item.setText("♥" if track.favorite else "")
+
     def set_current_track(self, playlist_index: int):
         """Highlight the currently playing track with 2px left border."""
         old_playlist_index = self._current_playlist_index
@@ -192,20 +222,27 @@ class PlaylistView(QTableWidget):
         # Update delegate and repaint affected rows
         self._delegate.set_playing_row(visual_row)
 
-        # Clear old row's play indicator
+        # Clear old row's play indicator (restore favorite indicator if applicable)
         if old_row >= 0:
             item = self.item(old_row, 0)
             if item:
-                item.setText("")
+                # Restore favorite indicator if track is favorited
+                track = self._get_track_at_visual_row(old_row)
+                item.setText("♥" if track and track.favorite else "")
             for col in range(self.columnCount()):
                 idx = self.model().index(old_row, col)
                 self.update(idx)
 
-        # Set new row's play indicator
+        # Set new row's play indicator (with favorite if applicable)
         if visual_row >= 0:
             item = self.item(visual_row, 0)
             if item:
-                item.setText(">")  # Simple play indicator
+                track = self._get_track_at_visual_row(visual_row)
+                # Show both play indicator and favorite
+                if track and track.favorite:
+                    item.setText("▶♥")
+                else:
+                    item.setText("▶")
             for col in range(self.columnCount()):
                 idx = self.model().index(visual_row, col)
                 self.update(idx)
@@ -331,14 +368,22 @@ class PlaylistView(QTableWidget):
             lambda: self.create_playlist_with_tracks_requested.emit(selected_indices)
         )
 
-        # Remove from Playlist (only when viewing a user playlist)
-        if self._current_view_playlist_id is not None:
+        # Remove from Playlist (only when viewing a user playlist, not favorites)
+        if self._current_view_playlist_id is not None and self._current_view_playlist_id != "favorites":
             menu.addSeparator()
             remove_action = QAction(f"Remove from Playlist{suffix}  [Del]", self)
             remove_action.triggered.connect(
                 lambda: self.remove_from_playlist_requested.emit(selected_indices)
             )
             menu.addAction(remove_action)
+
+        # Toggle Favorite
+        menu.addSeparator()
+        favorite_action = QAction(f"Toggle Favorite{suffix}  [l]", self)
+        favorite_action.triggered.connect(
+            lambda: self.toggle_favorite_requested.emit(selected_indices)
+        )
+        menu.addAction(favorite_action)
 
         # View Artist option (only for single selection)
         if count == 1:
@@ -366,11 +411,16 @@ class PlaylistView(QTableWidget):
             if indices:
                 self.add_to_queue_requested.emit(indices)
         elif event.key() == Qt.Key.Key_Delete:
-            # Remove from playlist (only when viewing a user playlist)
-            if self._current_view_playlist_id is not None:
+            # Remove from playlist (only when viewing a user playlist, not favorites)
+            if self._current_view_playlist_id is not None and self._current_view_playlist_id != "favorites":
                 indices = self.get_selected_indices()
                 if indices:
                     self.remove_from_playlist_requested.emit(indices)
+        elif event.key() == Qt.Key.Key_L:
+            # Toggle favorite (L for "love")
+            indices = self.get_selected_indices()
+            if indices:
+                self.toggle_favorite_requested.emit(indices)
         elif event.key() == Qt.Key.Key_G:
             # Go to artist view (single selection only)
             indices = self.get_selected_indices()

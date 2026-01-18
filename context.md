@@ -44,6 +44,7 @@ Local music player with a digital forensics/detective workstation aesthetic. Bui
 PyQt6>=6.6.0          # GUI framework
 python-vlc>=3.0.0     # Audio playback
 mutagen>=1.47.0       # Metadata reading
+dbus-python>=1.3.0    # MPRIS2 D-Bus integration
 thefuzz>=0.22.0       # Fuzzy search
 python-Levenshtein    # Speedup for thefuzz
 ```
@@ -59,12 +60,15 @@ wired/
 ├── main.py                         # Entry point
 ├── requirements.txt
 ├── context.md                      # This file
+├── assets/
+│   └── wired.svg                   # Application icon (Lain-inspired)
 ├── player/
 │   ├── core/
 │   │   ├── audio.py                # VLC wrapper with Qt signals
 │   │   ├── database.py             # SQLite library cache
 │   │   ├── library.py              # Directory scanner
 │   │   ├── metadata.py             # Track data class
+│   │   ├── mpris.py                # MPRIS2 D-Bus service
 │   │   ├── playlist.py             # In-memory playlist
 │   │   ├── playlist_manager.py     # Saved playlists (SQLite)
 │   │   └── queue.py                # Manual playback queue
@@ -73,7 +77,7 @@ wired/
 │   │   ├── sidebar.py              # Album art + media info + playlists
 │   │   ├── playlist_view.py        # Track table with sorting
 │   │   ├── player_bar.py           # Transport controls + track info
-│   │   ├── queue_panel.py          # Queue + upcoming tracks
+│   │   ├── queue_panel.py          # Queue + upcoming tracks (dynamic sizing)
 │   │   ├── search_overlay.py       # Telescope-style fuzzy search
 │   │   ├── filter_overlay.py       # Multi-field filtering
 │   │   └── artist_overlay.py       # Artist dossier view
@@ -104,6 +108,7 @@ wired/
 - [x] Previous/next track
 - [x] Auto-advance to next track
 - [x] Separate playback state from view (browse while playing)
+- [x] MPRIS2 D-Bus integration (media keys, KDE/GNOME integration)
 
 ### Queue System
 - [x] Manual queue (play next / add to queue)
@@ -154,7 +159,7 @@ wired/
 
 **Queue Panel (280px, collapsible)**
 - Queued tracks section
-- Upcoming tracks from playback list
+- Upcoming tracks from playback list (dynamic count based on available space)
 - Shuffle toggle
 - Clear queue button
 
@@ -232,6 +237,46 @@ This allows browsing different playlists while music continues playing. The queu
 - Background thread for library scanning
 - No unit tests (personal tool, manual testing)
 
+## MPRIS2 Integration
+
+The application exposes MPRIS2 D-Bus interfaces for system integration:
+
+### Bus Name
+`org.mpris.MediaPlayer2.wired`
+
+### Interfaces
+- `org.mpris.MediaPlayer2` - Application control (Raise, Quit)
+- `org.mpris.MediaPlayer2.Player` - Playback control
+
+### Features
+- Media key support (play/pause/next/prev)
+- Track info in notification daemons and lock screens
+- Integration with KDE Plasma media widget
+- Control via playerctl: `playerctl -p wired play-pause`
+- Album art display (extracted to temp file for MPRIS compatibility)
+
+### Implementation Notes
+- Album art is extracted from embedded tags to `/tmp/wired-mpris/` for MPRIS clients
+- Uses GLib mainloop integration with Qt event loop
+- Emits PropertiesChanged signals for metadata and playback status updates
+
+## Desktop Entry
+
+Location: `~/.local/share/applications/wired.desktop`
+
+```ini
+[Desktop Entry]
+Type=Application
+Name=Wired
+Comment=Local music player for Wired people
+Exec=/path/to/venv/bin/python /path/to/main.py
+Icon=/path/to/assets/wired.svg
+Terminal=false
+Categories=Audio;Music;Player;AudioVideo;
+Keywords=music;audio;player;mpris;
+StartupWMClass=wired
+```
+
 ## Known Limitations
 
 - VLC must be installed on system
@@ -242,8 +287,10 @@ This allows browsing different playlists while music continues playing. The queu
 
 ## Future Considerations
 
+- Improved search (full library search, search results to queue)
+- Better artist/album views
+- Last.fm integration (via external scrobbler reading log file)
 - Smart playlists (auto-updating based on criteria)
 - Column customization (show/hide/reorder)
 - Waveform display
-- Scrobbling support
 - Multiple library paths

@@ -29,7 +29,7 @@ from player.ui.player_bar import PlayerBar
 from player.ui.playlist_view import PlaylistView
 from player.ui.sidebar import Sidebar
 from player.ui.search_overlay import SearchOverlay
-from player.ui.filter_overlay import FilterOverlay, Filter
+from player.ui.filter_overlay import FilterOverlay, Filter, FilterCondition
 from player.ui.artist_overlay import ArtistOverlay
 from player.ui.queue_panel import QueuePanel
 from player.utils.config import PlayerConfig, load_config, save_config
@@ -284,6 +284,7 @@ class MainWindow(QMainWindow):
         self._playlist_view.create_playlist_with_tracks_requested.connect(self._on_create_playlist_with_tracks)
         self._playlist_view.remove_from_playlist_requested.connect(self._on_remove_from_playlist)
         self._playlist_view.view_artist_requested.connect(self._on_view_artist)
+        self._playlist_view.toggle_favorite_requested.connect(self._on_toggle_favorite)
 
         # Queue panel signals
         self._queue_panel.track_activated.connect(self._play_track_from_queue)
@@ -479,10 +480,22 @@ class MainWindow(QMainWindow):
         """Toggle shuffle mode."""
         enabled = not self._playlist.is_shuffled()
         self._playlist.shuffle(enabled)
+        self._rebuild_playback_for_shuffle()
 
     def _on_shuffle_toggled(self, enabled: bool):
         """Handle shuffle toggle from queue panel."""
         self._playlist.shuffle(enabled)
+        self._rebuild_playback_for_shuffle()
+
+    def _rebuild_playback_for_shuffle(self):
+        """Rebuild playback list when shuffle is toggled during playback."""
+        if self._current_track and self._playback_tracks:
+            # Find current track's index in the playlist
+            for i, t in enumerate(self._playlist.tracks):
+                if t.filepath == self._current_track.filepath:
+                    self._build_playback_list(i)
+                    self._update_queue_panel_playback()
+                    return
 
     def _on_play_next_requested(self, indices: list[int]):
         """Handle 'Play Next' request from playlist view."""
@@ -611,6 +624,7 @@ class MainWindow(QMainWindow):
         """Handle fast cache load completion."""
         if tracks:
             self._library_tracks = tracks
+            self._apply_favorites_to_tracks()
             self._playlist.clear()
             self._playlist.add_tracks(tracks)
             self._playlist.sort("album")
@@ -634,6 +648,7 @@ class MainWindow(QMainWindow):
     def _on_scan_finished(self, tracks: list[Track], added: int, removed: int):
         """Handle scan completion."""
         self._library_tracks = tracks
+        self._apply_favorites_to_tracks()
 
         # Update playlist with new/modified tracks
         if added > 0 or removed > 0:
@@ -660,6 +675,12 @@ class MainWindow(QMainWindow):
             self._scan_thread.wait()
             self._scan_thread = None
             self._scan_worker = None
+
+    def _apply_favorites_to_tracks(self):
+        """Apply favorite status from database to library tracks."""
+        favorites = self._database.get_all_favorites()
+        for track in self._library_tracks:
+            track.favorite = str(track.filepath) in favorites
 
     def _refresh_library(self):
         """Manually refresh the library."""
@@ -724,14 +745,32 @@ class MainWindow(QMainWindow):
         """Play a specific track by index from current view."""
         if 0 <= index < len(self._playlist):
             track = self._playlist[index]
-            # Set up playback from current view
-            self._playback_tracks = list(self._playlist.tracks)
-            self._playback_index = index
+            # Set up playback from current view, respecting shuffle order
+            self._build_playback_list(index)
             self._current_track = track
             self._playlist.set_current(index)  # Update view highlight
             self._audio.play(str(track.filepath))
             self._update_ui_for_track(track)
             self._update_queue_panel_playback()
+
+    def _build_playback_list(self, start_index: int):
+        """Build the playback list, respecting shuffle if enabled."""
+        if self._playlist.is_shuffled() and self._playlist._shuffle_order:
+            # Build list in shuffle order, starting from the selected track
+            shuffle_order = self._playlist._shuffle_order
+            # Find position of start_index in shuffle order, or put it first
+            if start_index in shuffle_order:
+                start_pos = shuffle_order.index(start_index)
+                # Reorder: start from selected track, then rest of shuffle
+                reordered = shuffle_order[start_pos:] + shuffle_order[:start_pos]
+            else:
+                reordered = [start_index] + [i for i in shuffle_order if i != start_index]
+            self._playback_tracks = [self._playlist[i] for i in reordered]
+            self._playback_index = 0
+        else:
+            # Normal order
+            self._playback_tracks = list(self._playlist.tracks)
+            self._playback_index = start_index
 
     def _play_current(self):
         """Play or resume current track."""
@@ -758,6 +797,10 @@ class MainWindow(QMainWindow):
                 self._update_ui_for_track(track)
                 self._sync_view_highlight()
                 self._update_queue_panel_playback()
+            else:
+                # No more tracks - update MPRIS to stopped
+                if self._mpris:
+                    self._mpris.update_playback_status("stopped")
 
     def _play_previous(self):
         """Play previous track from playback list."""
@@ -917,6 +960,7 @@ class MainWindow(QMainWindow):
         playlists = self._playlist_manager.get_all()
         self._sidebar.set_playlists(playlists)
         self._sidebar.set_library_count(len(self._library_tracks))
+        self._sidebar.set_favorites_count(sum(1 for t in self._library_tracks if t.favorite))
         self._sidebar.set_active_playlist(self._current_view)
         self._playlist_view.set_saved_playlists(playlists)
 
@@ -924,6 +968,8 @@ class MainWindow(QMainWindow):
         """Handle playlist selection from sidebar."""
         if playlist_id == "library":
             self._switch_to_library()
+        elif playlist_id == "favorites":
+            self._switch_to_favorites()
         else:
             self._switch_to_playlist(playlist_id)
 
@@ -932,6 +978,14 @@ class MainWindow(QMainWindow):
         self._current_view = None
         self._sidebar.set_active_playlist(None)
         self._playlist_view.set_current_view(None)
+        self._apply_current_view()
+
+    def _switch_to_favorites(self):
+        """Switch view to favorites."""
+        self._current_view = "favorites"
+        self._sidebar.set_active_playlist("favorites")
+        self._playlist_view.set_current_view("favorites")
+        self._active_filters = []  # Clear filters when switching views
         self._apply_current_view()
 
     def _switch_to_playlist(self, playlist_id: str):
@@ -943,10 +997,13 @@ class MainWindow(QMainWindow):
         self._apply_current_view()
 
     def _apply_current_view(self):
-        """Apply the current view (library or playlist) with filters."""
+        """Apply the current view (library, favorites, or playlist) with filters."""
         # Determine base tracks
         if self._current_view is None:
             base_tracks = self._library_tracks
+        elif self._current_view == "favorites":
+            # Filter to only favorite tracks
+            base_tracks = [t for t in self._library_tracks if t.favorite]
         else:
             base_tracks = self._playlist_manager.get_tracks(self._current_view, self._library_tracks)
 
@@ -1141,18 +1198,44 @@ class MainWindow(QMainWindow):
         self._artist_overlay.set_tracks(self._library_tracks)
         self._artist_overlay.show_artist(artist)
 
+    def _on_toggle_favorite(self, track_indices: list[int]):
+        """Toggle favorite status for tracks."""
+        for index in track_indices:
+            if 0 <= index < len(self._playlist):
+                track = self._playlist[index]
+                filepath = str(track.filepath)
+                # Toggle favorite status
+                new_status = not track.favorite
+                self._database.set_favorite(filepath, new_status)
+                track.favorite = new_status
+                # Also update in library tracks
+                for lib_track in self._library_tracks:
+                    if str(lib_track.filepath) == filepath:
+                        lib_track.favorite = new_status
+                        break
+
+        # Update sidebar count
+        self._refresh_playlists()
+
+        # Update visual indicators in the playlist view
+        self._playlist_view.update_favorite_indicator(track_indices)
+
+        # If viewing favorites, refresh view to add/remove tracks
+        if self._current_view == "favorites":
+            self._apply_current_view()
+
     def _on_artist_album_selected(self, artist: str, album: str):
         """Handle album selection from artist overlay - apply filters."""
         self._active_filters = [
-            Filter(field="artist", value=artist),
-            Filter(field="album", value=album),
+            Filter(conditions=[FilterCondition(field="artist", value=artist)]),
+            Filter(conditions=[FilterCondition(field="album", value=album)]),
         ]
         self._apply_current_view()
 
     def _on_artist_play_all(self, artist: str):
         """Handle 'Play All' from artist overlay."""
         # Filter to just this artist and play
-        self._active_filters = [Filter(field="artist", value=artist)]
+        self._active_filters = [Filter(conditions=[FilterCondition(field="artist", value=artist)])]
         self._apply_current_view()
         # Start playing from the first track
         if len(self._playlist) > 0:

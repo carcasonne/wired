@@ -33,6 +33,7 @@ class LibraryDatabase:
                     artist TEXT,
                     album TEXT,
                     year TEXT,
+                    genre TEXT,
                     track_number INTEGER,
                     duration REAL,
                     codec TEXT,
@@ -41,6 +42,11 @@ class LibraryDatabase:
                     bit_depth INTEGER
                 )
             """)
+            # Migration: add genre column if it doesn't exist
+            cursor = conn.execute("PRAGMA table_info(tracks)")
+            columns = [row[1] for row in cursor.fetchall()]
+            if "genre" not in columns:
+                conn.execute("ALTER TABLE tracks ADD COLUMN genre TEXT")
             conn.execute("""
                 CREATE INDEX IF NOT EXISTS idx_filepath ON tracks(filepath)
             """)
@@ -69,6 +75,12 @@ class LibraryDatabase:
                 CREATE INDEX IF NOT EXISTS idx_playlist_tracks_playlist
                 ON playlist_tracks(playlist_id, position)
             """)
+            # Favorites table
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS favorites (
+                    filepath TEXT PRIMARY KEY
+                )
+            """)
             conn.commit()
 
     def _connect(self) -> sqlite3.Connection:
@@ -81,7 +93,7 @@ class LibraryDatabase:
         """Get all tracks from the database."""
         with self._connect() as conn:
             cursor = conn.execute("""
-                SELECT filepath, mtime, title, artist, album, year,
+                SELECT filepath, mtime, title, artist, album, year, genre,
                        track_number, duration, codec, bitrate,
                        sample_rate, bit_depth
                 FROM tracks
@@ -109,9 +121,9 @@ class LibraryDatabase:
         with self._connect() as conn:
             conn.execute("""
                 INSERT OR REPLACE INTO tracks
-                (filepath, mtime, title, artist, album, year, track_number,
+                (filepath, mtime, title, artist, album, year, genre, track_number,
                  duration, codec, bitrate, sample_rate, bit_depth)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 track_data["filepath"],
                 mtime,
@@ -119,6 +131,7 @@ class LibraryDatabase:
                 track_data.get("artist", "Unknown"),
                 track_data.get("album", "Unknown"),
                 track_data.get("year", ""),
+                track_data.get("genre", ""),
                 track_data.get("track_number", 0),
                 track_data.get("duration", 0.0),
                 track_data.get("codec", "Unknown"),
@@ -136,9 +149,9 @@ class LibraryDatabase:
         with self._connect() as conn:
             conn.executemany("""
                 INSERT OR REPLACE INTO tracks
-                (filepath, mtime, title, artist, album, year, track_number,
+                (filepath, mtime, title, artist, album, year, genre, track_number,
                  duration, codec, bitrate, sample_rate, bit_depth)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, [
                 (
                     data["filepath"],
@@ -147,6 +160,7 @@ class LibraryDatabase:
                     data.get("artist", "Unknown"),
                     data.get("album", "Unknown"),
                     data.get("year", ""),
+                    data.get("genre", ""),
                     data.get("track_number", 0),
                     data.get("duration", 0.0),
                     data.get("codec", "Unknown"),
@@ -339,3 +353,41 @@ class LibraryDatabase:
                 (now, playlist_id)
             )
             conn.commit()
+
+    # --- Favorites methods ---
+
+    def is_favorite(self, filepath: str) -> bool:
+        """Check if a track is a favorite."""
+        with self._connect() as conn:
+            cursor = conn.execute(
+                "SELECT 1 FROM favorites WHERE filepath = ?",
+                (filepath,)
+            )
+            return cursor.fetchone() is not None
+
+    def set_favorite(self, filepath: str, favorite: bool) -> None:
+        """Set or unset a track as favorite."""
+        with self._connect() as conn:
+            if favorite:
+                conn.execute(
+                    "INSERT OR IGNORE INTO favorites (filepath) VALUES (?)",
+                    (filepath,)
+                )
+            else:
+                conn.execute(
+                    "DELETE FROM favorites WHERE filepath = ?",
+                    (filepath,)
+                )
+            conn.commit()
+
+    def get_all_favorites(self) -> set[str]:
+        """Get all favorite track filepaths."""
+        with self._connect() as conn:
+            cursor = conn.execute("SELECT filepath FROM favorites")
+            return {row["filepath"] for row in cursor.fetchall()}
+
+    def get_favorites_count(self) -> int:
+        """Get number of favorite tracks."""
+        with self._connect() as conn:
+            cursor = conn.execute("SELECT COUNT(*) FROM favorites")
+            return cursor.fetchone()[0]

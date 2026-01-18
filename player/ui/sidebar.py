@@ -83,8 +83,9 @@ class Sidebar(QWidget):
 
     def __init__(self):
         super().__init__()
-        self._current_playlist_id: str | None = None  # None = library
+        self._current_playlist_id: str | None = None  # None = library, "favorites" = favorites
         self._library_track_count = 0
+        self._favorites_count = 0
         self._setup_ui()
 
     def _setup_ui(self):
@@ -407,6 +408,11 @@ class Sidebar(QWidget):
         self._library_track_count = count
         self._refresh_playlist_list()
 
+    def set_favorites_count(self, count: int):
+        """Set the favorites track count."""
+        self._favorites_count = count
+        self._refresh_playlist_list()
+
     def set_playlists(self, playlists: list[SavedPlaylist]):
         """Update the playlist list."""
         self._playlists = playlists
@@ -424,6 +430,15 @@ class Sidebar(QWidget):
         library_item.setData(PlaylistItemDelegate.ACTIVE_ROLE, self._current_playlist_id is None)
         library_item.setToolTip(f"{self._library_track_count:,} tracks")
         self._playlist_list.addItem(library_item)
+
+        # Favorites item (second, another default view)
+        favorites_item = QListWidgetItem()
+        fav_count_str = f"{self._favorites_count:,}" if self._favorites_count else "0"
+        favorites_item.setText(f"FAVORITES  [{fav_count_str}]")
+        favorites_item.setData(Qt.ItemDataRole.UserRole, "favorites")
+        favorites_item.setData(PlaylistItemDelegate.ACTIVE_ROLE, self._current_playlist_id == "favorites")
+        favorites_item.setToolTip(f"{self._favorites_count:,} tracks")
+        self._playlist_list.addItem(favorites_item)
 
         # User playlists
         for playlist in getattr(self, "_playlists", []):
@@ -450,7 +465,7 @@ class Sidebar(QWidget):
     def _on_playlist_double_clicked(self, item: QListWidgetItem):
         """Handle playlist item double-click (rename for user playlists)."""
         playlist_id = item.data(Qt.ItemDataRole.UserRole)
-        if playlist_id != "library":
+        if playlist_id not in ("library", "favorites"):
             # Get current name (strip count suffix)
             text = item.text()
             # Remove the count suffix like "  [123]"
@@ -471,8 +486,8 @@ class Sidebar(QWidget):
             return
 
         playlist_id = item.data(Qt.ItemDataRole.UserRole)
-        if playlist_id == "library":
-            return  # No context menu for library
+        if playlist_id in ("library", "favorites"):
+            return  # No context menu for default views
 
         menu = QMenu(self)
         menu.setStyleSheet(f"""

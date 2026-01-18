@@ -122,5 +122,7 @@ class AudioEngine(QObject):
         """Handle track end."""
         self._timer.stop()
         self._is_playing = False
+        # Only emit track_ended - don't emit stopped state here
+        # The next track will emit "playing" state, or if there's no next track,
+        # the UI will handle the stopped state appropriately
         self.track_ended.emit()
-        self.state_changed.emit("stopped")

@@ -29,18 +29,61 @@ from player.theme.lainchan import (
 
 
 @dataclass
-class Filter:
-    """Represents a single filter."""
-    field: str  # artist, album, year, codec
+class FilterCondition:
+    """Represents a single filter condition."""
+    field: str  # artist, album, year, genre, codec
     value: str
 
     def matches(self, track: Track) -> bool:
-        """Check if track matches this filter."""
-        field_value = getattr(track, self.field, "").lower()
-        return self.value.lower() in field_value
+        """Check if track matches this condition."""
+        # Handle favorite field (boolean)
+        if self.field == "favorite":
+            return track.favorite
+
+        field_value = getattr(track, self.field, "")
+        search_value = self.value.lower()
+
+        # Handle year ranges (e.g., 1980-1990)
+        if self.field == "year" and self._is_year_range():
+            return self._matches_year_range(field_value)
+
+        # Handle semicolon-separated values (e.g., genre field)
+        if ";" in field_value:
+            return any(search_value in part.strip().lower() for part in field_value.split(";"))
+
+        return search_value in field_value.lower()
+
+    def _is_year_range(self) -> bool:
+        """Check if value is a year range pattern (YYYY-YYYY)."""
+        import re
+        return bool(re.match(r"^\d{4}-\d{4}$", self.value))
+
+    def _matches_year_range(self, track_year: str) -> bool:
+        """Check if track year falls within the range."""
+        try:
+            start, end = self.value.split("-")
+            start_year = int(start)
+            end_year = int(end)
+            track_year_int = int(track_year[:4]) if track_year else 0
+            return start_year <= track_year_int <= end_year
+        except (ValueError, IndexError):
+            return False
 
     def __str__(self) -> str:
-        return f"{self.field}: {self.value}"
+        return f"{self.field}:{self.value}"
+
+
+@dataclass
+class Filter:
+    """Represents a filter with one or more OR'd conditions."""
+    conditions: list[FilterCondition]
+
+    def matches(self, track: Track) -> bool:
+        """Check if track matches any condition (OR logic)."""
+        return any(c.matches(track) for c in self.conditions)
+
+    def __str__(self) -> str:
+        return " | ".join(str(c) for c in self.conditions)
 
 
 class FilterChip(QFrame):
@@ -66,11 +109,18 @@ class FilterChip(QFrame):
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(8, 4, 4, 4)
-        layout.setSpacing(6)
+        layout.setSpacing(4)
 
-        label = QLabel(str(self._filter))
-        label.setStyleSheet(f"color: {TEXT_NORMAL}; font-size: 12px; border: none; background: transparent;")
-        layout.addWidget(label)
+        # Build label with styled OR separators
+        for i, condition in enumerate(self._filter.conditions):
+            if i > 0:
+                sep = QLabel("|")
+                sep.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 12px; border: none; background: transparent;")
+                layout.addWidget(sep)
+
+            cond_label = QLabel(str(condition))
+            cond_label.setStyleSheet(f"color: {TEXT_NORMAL}; font-size: 12px; border: none; background: transparent;")
+            layout.addWidget(cond_label)
 
         remove_btn = QPushButton("×")
         remove_btn.setFixedSize(16, 16)
@@ -139,7 +189,7 @@ class FilterOverlay(QDialog):
     filters_applied = pyqtSignal(list)  # Emits list of Filter objects
     save_as_playlist_requested = pyqtSignal(list)  # Emits list of Filter objects for saving
 
-    FILTER_FIELDS = ["artist", "album", "year", "codec"]
+    FILTER_FIELDS = ["artist", "album", "year", "genre", "codec", "favorite"]
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -268,7 +318,7 @@ class FilterOverlay(QDialog):
         input_row.addWidget(prompt)
 
         self._input = QLineEdit()
-        self._input.setPlaceholderText("artist:name  album:name  year:2020  codec:flac")
+        self._input.setPlaceholderText("artist:name | genre:rock | year:1980-1990")
         self._input.setStyleSheet(f"""
             QLineEdit {{
                 background-color: transparent;
@@ -352,7 +402,7 @@ class FilterOverlay(QDialog):
         footer_layout = QHBoxLayout(footer)
         footer_layout.setContentsMargins(12, 0, 12, 0)
 
-        hint = QLabel("Enter: add/apply  |  Tab: complete  |  Backspace: remove  |  Esc: cancel")
+        hint = QLabel("Enter: add/apply  ·  Tab: complete  ·  | for OR  ·  Backspace: remove  ·  Esc: cancel")
         hint.setStyleSheet(f"color: {TEXT_DIM}; font-size: 10px;")
         footer_layout.addWidget(hint)
 
@@ -451,7 +501,7 @@ class FilterOverlay(QDialog):
     def _update_suggestions(self):
         """Update the suggestions list based on input."""
         self._suggestions_list.clear()
-        text = self._input.text().strip().lower()
+        text = self._input.text().strip()
 
         if not text:
             # Show field hints
@@ -460,26 +510,43 @@ class FilterOverlay(QDialog):
                 self._suggestions_list.addItem(item)
             return
 
+        # For OR expressions, only suggest for the last part after |
+        if "|" in text:
+            prefix = text.rsplit("|", 1)[0] + "| "
+            current_part = text.rsplit("|", 1)[1].strip().lower()
+        else:
+            prefix = ""
+            current_part = text.lower()
+
         # Parse input for field:value
-        if ":" in text:
-            field, value = text.split(":", 1)
+        if ":" in current_part:
+            field, value = current_part.split(":", 1)
             field = field.strip()
             value = value.strip()
 
             if field in self.FILTER_FIELDS:
-                # Get unique values for this field
-                values = self._get_unique_values(field)
-                # Filter by partial match
-                matches = [v for v in values if value.lower() in v.lower()][:20]
-
-                for v in matches:
-                    item = QListWidgetItem(f"{field}:{v}")
+                # Favorite is a boolean field, no value suggestions needed
+                if field == "favorite":
+                    item = QListWidgetItem(f"{prefix}favorite:yes")
                     self._suggestions_list.addItem(item)
+                else:
+                    # Get unique values for this field
+                    values = self._get_unique_values(field)
+                    # Filter by partial match
+                    matches = [v for v in values if value.lower() in v.lower()][:20]
+
+                    for v in matches:
+                        item = QListWidgetItem(f"{prefix}{field}:{v}")
+                        self._suggestions_list.addItem(item)
         else:
             # Show matching fields
             for field in self.FILTER_FIELDS:
-                if text in field:
-                    item = QListWidgetItem(f"{field}:")
+                if current_part in field:
+                    # For favorite, show with value since it's boolean
+                    if field == "favorite":
+                        item = QListWidgetItem(f"{prefix}favorite:yes")
+                    else:
+                        item = QListWidgetItem(f"{prefix}{field}:")
                     self._suggestions_list.addItem(item)
 
         if self._suggestions_list.count() > 0:
@@ -491,7 +558,14 @@ class FilterOverlay(QDialog):
         for track in self._tracks:
             val = getattr(track, field, "")
             if val and val != "Unknown":
-                values.add(str(val))
+                # Handle semicolon-separated values (e.g., genre field)
+                if ";" in val:
+                    for part in val.split(";"):
+                        part = part.strip()
+                        if part:
+                            values.add(part)
+                else:
+                    values.add(str(val))
         return sorted(values)
 
     def _on_suggestion_activated(self, item: QListWidgetItem):
@@ -507,18 +581,28 @@ class FilterOverlay(QDialog):
             self._add_filter_from_text(text)
 
     def _add_filter_from_text(self, text: str):
-        """Parse and add a filter from text like 'artist:Blondie'."""
+        """Parse and add a filter from text like 'artist:Blondie' or 'artist:metallica | genre:metal'."""
         if ":" not in text:
             return
 
-        field, value = text.split(":", 1)
-        field = field.strip().lower()
-        value = value.strip()
+        # Split by pipe for OR conditions
+        parts = [p.strip() for p in text.split("|")]
+        conditions = []
 
-        if field in self.FILTER_FIELDS and value:
-            new_filter = Filter(field=field, value=value)
+        for part in parts:
+            if ":" not in part:
+                continue
+            field, value = part.split(":", 1)
+            field = field.strip().lower()
+            value = value.strip()
+
+            if field in self.FILTER_FIELDS and value:
+                conditions.append(FilterCondition(field=field, value=value))
+
+        if conditions:
+            new_filter = Filter(conditions=conditions)
             # Don't add duplicates
-            if new_filter not in self._filters:
+            if not any(str(f) == str(new_filter) for f in self._filters):
                 self._filters.append(new_filter)
                 self._refresh_chips()
                 self._update_match_count()

@@ -13,11 +13,11 @@ PLATFORM ............ LINUX
 
 ## OVERVIEW
 
-Wired is a keyboard-driven music player built for local file playback. The interface follows U.S. Graphics Company design principles: explicit labels, dense information display, technical nomenclature, and zero decorative elements.
+[overview image]Screenshots/main_overview.png)
 
 The application is designed for users who:
 - Maintain local music libraries
-- Prefer keyboard navigation over mouse interaction
+- Like keyboard shortcuts but als oappreciate using the mouse
 - Want metadata visibility without visual clutter
 - Need efficient queue and playlist management
 
@@ -57,6 +57,12 @@ source venv/bin/activate
 ```
 pip install -r requirements.txt
 ```
+
+Dependencies:
+- PyQt6 - GUI framework
+- python-vlc - Audio playback
+- mutagen - Metadata reading
+- dbus-python - MPRIS2 system integrationfile:///home/sonne/Billeder/Screenshots/wired/Skærmbillede_20260118_202608.png
 
 ### 4. Verify VLC Installation
 
@@ -246,32 +252,35 @@ Opus            .opus           Vorbis Comments
 ## ARCHITECTURE
 
 ```
-player/
-  core/
-    audio.py ............. VLC playback engine
-    database.py .......... SQLite operations
-    library.py ........... Directory scanning
-    metadata.py .......... Track data structure
-    playlist.py .......... In-memory playlist
-    playlist_manager.py .. Saved playlist storage
-    queue.py ............. Manual queue
-
-  ui/
-    main_window.py ....... Application container
-    sidebar.py ........... Album art + info + playlists
-    playlist_view.py ..... Track table
-    player_bar.py ........ Transport controls
-    queue_panel.py ....... Queue display
-    search_overlay.py .... Fuzzy search
-    filter_overlay.py .... Field filtering
-    artist_overlay.py .... Artist dossier
-
-  theme/
-    lainchan.py .......... Colors + stylesheet
-
-  utils/
-    config.py ............ Settings persistence
-    search.py ............ Search algorithms
+wired/
+├── main.py .................. Entry point
+├── requirements.txt
+├── assets/
+│   └── wired.svg ............ Application icon
+└── player/
+    ├── core/
+    │   ├── audio.py ......... VLC playback engine
+    │   ├── database.py ...... SQLite operations
+    │   ├── library.py ....... Directory scanning
+    │   ├── metadata.py ...... Track data structure
+    │   ├── mpris.py ......... MPRIS2 D-Bus service
+    │   ├── playlist.py ...... In-memory playlist
+    │   ├── playlist_manager.py  Saved playlist storage
+    │   └── queue.py ......... Manual queue
+    ├── ui/
+    │   ├── main_window.py ... Application container
+    │   ├── sidebar.py ....... Album art + info + playlists
+    │   ├── playlist_view.py . Track table
+    │   ├── player_bar.py .... Transport controls
+    │   ├── queue_panel.py ... Queue display (dynamic sizing)
+    │   ├── search_overlay.py  Fuzzy search
+    │   ├── filter_overlay.py  Field filtering
+    │   └── artist_overlay.py  Artist dossier
+    ├── theme/
+    │   └── lainchan.py ...... Colors + stylesheet
+    └── utils/
+        ├── config.py ........ Settings persistence
+        └── search.py ........ Search algorithms
 ```
 
 ---
@@ -287,6 +296,51 @@ Album art source            Embedded tags only (no folder.jpg)
 Gapless playback            Not implemented
 Crossfade                   Not implemented
 ```
+
+---
+
+## SYSTEM INTEGRATION
+
+### MPRIS2 D-Bus
+
+Wired exposes MPRIS2 interfaces for desktop integration:
+
+```
+BUS NAME ............ org.mpris.MediaPlayer2.wired
+OBJECT PATH ......... /org/mpris/MediaPlayer2
+```
+
+Features:
+- Media key support (play/pause/next/prev)
+- Track info in notification daemons
+- KDE Plasma media widget integration
+- Control via playerctl
+
+```bash
+# Example playerctl commands
+playerctl -p wired play-pause
+playerctl -p wired next
+playerctl -p wired metadata
+```
+
+### Desktop Entry
+
+To add Wired to your application launcher, create `~/.local/share/applications/wired.desktop`:
+
+```ini
+[Desktop Entry]
+Type=Application
+Name=Wired
+Comment=Local music player for Wired people
+Exec=/path/to/venv/bin/python /path/to/main.py
+Icon=/path/to/assets/wired.svg
+Terminal=false
+Categories=Audio;Music;Player;AudioVideo;
+Keywords=music;audio;player;mpris;
+StartupWMClass=wired
+```
+
+Update the `Exec` and `Icon` paths to match your installation.
 
 ---
 
