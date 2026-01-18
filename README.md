@@ -13,7 +13,7 @@ PLATFORM ............ LINUX
 
 ## OVERVIEW
 
-[overview image]Screenshots/main_overview.png)
+[overview image](Screenshots/main_overview.png)
 
 The application is designed for users who:
 - Maintain local music libraries
