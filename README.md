@@ -16,10 +16,11 @@ PLATFORM ............ LINUX
 ![overview image](Screenshots/main_overview.png)
 
 The application is designed for users who:
-- Maintain local music libraries
-- Like keyboard shortcuts but als oappreciate using the mouse
+- Maintain a local music library
+- Like keyboard shortcuts but also appreciate using the mouse
 - Want metadata visibility without visual clutter
-- Need efficient queue and playlist management
+- Need easy to use and understand playlists and queue.
+    - Reminiscent of traditional streaming players like Spotify
 
 ---
 
@@ -62,7 +63,7 @@ Dependencies:
 - PyQt6 - GUI framework
 - python-vlc - Audio playback
 - mutagen - Metadata reading
-- dbus-python - MPRIS2 system integrationfile:///home/sonne/Billeder/Screenshots/wired/Skærmbillede_20260118_202608.png
+- dbus-python - MPRIS2 system integration
 
 ### 4. Verify VLC Installation
 
@@ -107,8 +108,8 @@ python main.py
 +---------------------------+---------------------------------------+
 | PLAYLISTS            [+]  | TRACK    Currently Playing Track      |
 |  LIBRARY  [1,234]         | ARTIST   Artist Name                  |
-|  Playlist One  [45]       +---------------------------------------+
-|  Playlist Two  [128]      | SOURCE   | POSITION | TRANSPORT| LEVEL|
+|  FAVORITES  [42]          +---------------------------------------+
+|  Playlist One  [45]       | SOURCE   | POSITION | TRANSPORT| LEVEL|
 +---------------------------+---------------------------------------+
 ```
 
@@ -139,7 +140,9 @@ f  /  /         Open search overlay
 Ctrl+F          Open filter overlay
 Escape          Close overlay / Clear filters
 q               Toggle queue panel
+s               Toggle shuffle mode
 g               Open artist view
+l               Toggle favorite status
 ```
 
 ### QUEUE OPERATIONS
@@ -165,7 +168,7 @@ Delete          Remove from playlist (playlist view only)
 ```
 KEY             ACTION
 -------------------------------------------------
-Ctrl+O          Open folder (temporary)
+Ctrl+O          Open folder (temporary, does not affect database)
 Ctrl+I          Import M3U playlist
 Ctrl+Q          Quit application
 ```
@@ -191,9 +194,19 @@ Telescope-style fuzzy search accessible via `f` or `/`:
 ### FILTER SYSTEM
 
 Multi-field filtering accessible via `Ctrl+F`:
-- Filter by artist, album, year, codec
-- Multiple filters combine with AND logic
+- Filter by artist, album, year, genre, codec, favorite
+- OR logic within filters using `|` (e.g., `artist:metallica | genre:metal`)
+- Year ranges supported (e.g., `year:1980-1990`)
+- Multiple filter chips combine with AND logic
 - Save filter results as new playlist
+
+### FAVORITES
+
+Mark tracks as favorites for quick access:
+- Toggle favorite status with `l` key
+- ♥ indicator displayed in track list
+- Dedicated FAVORITES view in sidebar
+- Filter by favorites using `favorite:yes`
 
 ### QUEUE SYSTEM
 
@@ -222,7 +235,7 @@ Album grid view for individual artists:
 
 ## CONFIGURATION
 
-Settings stored at: `~/.config/wired/config.json`
+Settings stored at: `~/.config/wired/config.ini`
 
 Persisted state includes:
 - Window geometry
@@ -231,6 +244,7 @@ Persisted state includes:
 - Panel visibility
 - Shuffle state
 - Library path
+- Favorite tracks
 
 ---
 
@@ -368,8 +382,10 @@ Ensure files have embedded tags. Use a tool like `kid3` or `picard` to verify an
 
 Remove the database file to force rescan:
 ```
-rm ~/.local/share/wired/wired.db
+rm ~/.config/wired/library.db
 ```
+
+This will delete your saved playlists and favorite status.
 
 ---
 
